@@ -1,8 +1,10 @@
 # dvf_app.py
 """
-Synthetic Persona DVF Scoring Assistant — Demo Mode
----------------------------------------------------
-Instant AI-like feedback on new concepts using hardcoded synthetic personas.
+Graza Dressing DVF Scoring Assistant — Demo Mode
+------------------------------------------------
+Instant synthetic-persona feedback on whether Graza should launch ready-to-use
+olive-oil salad dressings.
+
 Run:
     pip install streamlit pandas numpy plotly
     streamlit run dvf_app.py
@@ -16,62 +18,70 @@ import streamlit as st
 # ------------------------------
 # Page setup
 # ------------------------------
-st.set_page_config(page_title="DVF Scoring Assistant", layout="wide")
-st.title("📊 Synthetic Persona DVF Scoring Assistant")
-st.caption("Instant AI-like feedback on new concepts (demo, hard-coded data)")
-st.info("🚀 DEMO MODE: All controls visible, calculations local-only")
+st.set_page_config(page_title="Graza Dressing DVF Assistant", layout="wide")
+st.title("🥗 Graza Dressing DVF Scoring Assistant")
+st.caption("Synthetic-persona panel evaluating a potential Graza salad-dressing line")
+st.info("🚀 DEMO MODE: All data hard-coded for instant play")
 
 # ------------------------------
-# Hardcoded demo data
+# 1 · Personas (research-backed synthetic)
 # ------------------------------
-
 PERSONAS = [
-    {"id": "p01", "name": "Eco-Savvy Parent",     "prior": {"des": 3.8, "via": 3.1, "fea": 2.9}},
-    {"id": "p02", "name": "Budget Millennial",    "prior": {"des": 3.2, "via": 2.8, "fea": 3.5}},
-    {"id": "p03", "name": "Tech Enthusiast",      "prior": {"des": 4.5, "via": 4.0, "fea": 3.8}},
-    {"id": "p04", "name": "Busy Executive",       "prior": {"des": 3.6, "via": 4.2, "fea": 3.0}},
-    {"id": "p05", "name": "Eco-Advocate Student", "prior": {"des": 4.0, "via": 2.5, "fea": 3.2}},
-    {"id": "p06", "name": "Health-Pro Professional","prior":{"des":3.9,"via":3.3,"fea":3.1}},
-    {"id": "p07", "name": "Value-Seeker Retiree", "prior": {"des": 3.1, "via": 3.0, "fea": 2.8}},
-    {"id": "p08", "name": "Adventure Traveler",   "prior": {"des": 4.2, "via": 3.7, "fea": 3.6}},
+    {"id": "p01", "name": "Social-Chef Sara",       "prior": {"des": 4.5, "via": 3.8, "fea": 3.6}},
+    {"id": "p02", "name": "Frugal-Dad Dan",         "prior": {"des": 3.2, "via": 2.6, "fea": 3.3}},
+    {"id": "p03", "name": "Clean-Eating Chloe",     "prior": {"des": 4.3, "via": 3.9, "fea": 3.7}},
+    {"id": "p04", "name": "Eco-Mom Maya",           "prior": {"des": 4.1, "via": 3.4, "fea": 3.2}},
+    {"id": "p05", "name": "Chef-Next-Door Marco",   "prior": {"des": 3.0, "via": 3.2, "fea": 4.0}},
+    {"id": "p06", "name": "Time-Starved Tina",      "prior": {"des": 4.2, "via": 3.6, "fea": 3.5}},
 ]
 
+# ------------------------------
+# 2 · DVF Questionnaire (dressings-specific)
+# ------------------------------
 QUESTIONS = [
-    {"id": "q1",  "dim": "des", "text": "How appealing is this concept?"},
-    {"id": "q2",  "dim": "via", "text": "Likelihood to pay a premium?"},
-    {"id": "q3",  "dim": "fea", "text": "Perceived technical feasibility?"},
-    {"id": "q4",  "dim": "des", "text": "Would you recommend it to a friend?"},
-    {"id": "q5",  "dim": "via", "text": "Would you consider subscription?"},
-    {"id": "q6",  "dim": "fea", "text": "Integration ease with current tools?"},
-    {"id": "q7",  "dim": "des", "text": "Emotional resonance of brand?"},
-    {"id": "q8",  "dim": "via", "text": "Expected ROI over 1 year?"},
-    {"id": "q9",  "dim": "fea", "text": "Support & maintenance adequacy?"},
-    {"id": "q10", "dim": "des", "text": "Overall desirability rating?"},
+    {"id": "q1", "dim": "des",
+     "text": "How appealing is a Graza line of ready-to-use olive-oil salad dressings?"},
+    {"id": "q2", "dim": "via",
+     "text": "At $8.99 per 10 oz bottle, how likely are you to try one?"},
+    {"id": "q3", "dim": "fea",
+     "text": "How confident are you that Graza can make a fresh, additive-free dressing?"},
+    {"id": "q4", "dim": "des",
+     "text": "Does a dressing line *fit* Graza’s fun squeeze-bottle brand?"},
+    {"id": "q5", "dim": "via",
+     "text": "Would Graza dressings replace or complement your current dressing?"},
+    {"id": "q6", "dim": "fea",
+     "text": "How feasible is the squeeze-bottle format for salad dressings?"},
 ]
 
-# Pre-sampled responses per persona (1–5 scale)
+# ------------------------------
+# 3 · Pre-sampled persona responses (1-5 scale)
+# ------------------------------
 RESPONSES = [
-    {"persona": "p01", **{f"q{i}": v for i,v in enumerate([4.2,3.5,2.9,4.0,3.1,3.0,4.1,2.8,3.2,4.0], start=1)}},
-    {"persona": "p02", **{f"q{i}": v for i,v in enumerate([3.0,2.6,3.7,3.2,2.9,3.5,3.1,2.7,3.0,3.2], start=1)}},
-    {"persona": "p03", **{f"q{i}": v for i,v in enumerate([4.6,4.1,3.9,4.5,4.0,3.8,4.7,3.9,4.0,4.5], start=1)}},
-    {"persona": "p04", **{f"q{i}": v for i,v in enumerate([3.7,4.3,3.2,3.8,4.1,3.1,3.6,4.2,3.0,3.6], start=1)}},
-    {"persona": "p05", **{f"q{i}": v for i,v in enumerate([4.1,2.4,3.3,4.0,2.6,3.2,4.2,2.5,3.1,4.0], start=1)}},
-    {"persona": "p06", **{f"q{i}": v for i,v in enumerate([3.9,3.2,3.0,3.7,3.3,3.1,3.8,3.4,3.2,3.9], start=1)}},
-    {"persona": "p07", **{f"q{i}": v for i,v in enumerate([3.2,3.1,2.7,3.0,3.0,2.8,3.3,3.2,2.9,3.1], start=1)}},
-    {"persona": "p08", **{f"q{i}": v for i,v in enumerate([4.3,3.8,3.6,4.1,3.7,3.6,4.4,3.9,3.5,4.2], start=1)}},
+    {"persona": "p01", "q1": 4.8, "q2": 4.1, "q3": 3.8, "q4": 4.9, "q5": 4.0, "q6": 4.5},
+    {"persona": "p02", "q1": 3.4, "q2": 2.2, "q3": 3.1, "q4": 3.0, "q5": 2.7, "q6": 3.3},
+    {"persona": "p03", "q1": 4.6, "q2": 4.0, "q3": 3.9, "q4": 4.2, "q5": 3.8, "q6": 3.7},
+    {"persona": "p04", "q1": 4.3, "q2": 3.5, "q3": 3.5, "q4": 4.1, "q5": 3.6, "q6": 3.4},
+    {"persona": "p05", "q1": 3.1, "q2": 3.0, "q3": 4.2, "q4": 2.9, "q5": 2.8, "q6": 3.2},
+    {"persona": "p06", "q1": 4.5, "q2": 3.7, "q3": 3.6, "q4": 4.4, "q5": 3.9, "q6": 4.1},
 ]
 
-# Optional pre-laid coordinates for bubble placement
+# ------------------------------
+# 4 · Coordinates (one per persona for instant layout)
+# ------------------------------
 COORDINATES = [
-    {"x": 3.1, "y": 4.5}, {"x": 2.8, "y": 3.2}, {"x": 4.5, "y": 4.2}, {"x": 3.9, "y": 3.6},
-    {"x": 4.0, "y": 4.0}, {"x": 3.3, "y": 3.9}, {"x": 3.0, "y": 3.1}, {"x": 4.2, "y": 4.3"},
+    {"x": 3.2, "y": 4.6},
+    {"x": 2.7, "y": 3.0},
+    {"x": 4.4, "y": 4.1},
+    {"x": 3.8, "y": 3.7},
+    {"x": 3.0, "y": 3.4},
+    {"x": 4.1, "y": 4.3},
 ]
 
 # ------------------------------
-# Scoring helpers
+# Helper functions
 # ------------------------------
-
 def compute_dvf(responses: dict, prior: dict, w_prior: float):
+    """Blend persona prior with questionnaire means."""
     dims = {"des": [], "via": [], "fea": []}
     for q, v in responses.items():
         dim = next(item["dim"] for item in QUESTIONS if item["id"] == q)
@@ -83,47 +93,38 @@ def add_variance(score: float, sigma: float):
     return float(np.clip(np.random.normal(score, sigma), 1.0, 5.0))
 
 # ------------------------------
-# Sidebar controls
+# Sidebar
 # ------------------------------
 with st.sidebar:
     st.header("🔧 Controls")
-    show_legend  = st.checkbox("Show feasibility legend", value=False)
-    selected_ids = st.multiselect(
-        "Select Personas",
+    show_legend = st.checkbox("Show Feasibility legend", value=False)
+    selected_names = st.multiselect(
+        "Personas",
         [p["name"] for p in PERSONAS],
-        default=[p["name"] for p in PERSONAS]
+        default=[p["name"] for p in PERSONAS],
     )
-    sigma = st.slider(
-        "Variance σ",
-        min_value=0.05, max_value=0.50,
-        step=0.05, value=0.15
-    )
+    sigma = st.slider("Variance σ", 0.05, 0.50, 0.15, 0.05)
     w_prior = st.select_slider(
-        "Prior weight",
+        "Prior weight (how much the baseline opinions matter)",
         options=[0.0, 0.25, 0.5, 0.75, 1.0],
-        value=0.25
+        value=0.25,
     )
-    st.divider()
-    st.subheader("🚧 Demo Filters (disabled)")
-    st.file_uploader("Upload personas/answers", type=["json"], disabled=True)
+    st.caption("Lower σ = more agreement across panel")
 
-# Filter personas/responses
-mask      = [p["name"] in selected_ids for p in PERSONAS]
-personas  = [p for p, m in zip(PERSONAS, mask) if m]
+# Slice data
+mask = [p["name"] in selected_names for p in PERSONAS]
+personas = [p for p, m in zip(PERSONAS, mask) if m]
 responses = [r for r in RESPONSES if r["persona"] in {p["id"] for p in personas}]
-coords    = [c for c, m in zip(COORDINATES, mask) if m]
+coords = [c for c, m in zip(COORDINATES, mask) if m]
 
 # ------------------------------
 # Tabs
 # ------------------------------
-tab_map, tab_det, tab_var, tab_sum, tab_cmp, tab_exp = st.tabs([
-    "DVF Map", "Persona Details", "Variance Matrix",
-    "Summary", "Compare", "Export"
-])
+tab_map, tab_det = st.tabs(["DVF Map", "Persona Details"])
 
-# ------------------------------
-# DVF Map
-# ------------------------------
+# ==============================
+# Tab 1 · Bubble Map
+# ==============================
 with tab_map:
     st.subheader("DVF Bubble Map")
     rows = []
@@ -131,73 +132,63 @@ with tab_map:
         base = compute_dvf(
             {k: v for k, v in resp.items() if k != "persona"},
             p["prior"],
-            w_prior
+            w_prior,
         )
         dvf = {d: add_variance(s, sigma) for d, s in base.items()}
         rows.append({**{"id": p["id"], "name": p["name"], **dvf}, **coord})
 
     df = pd.DataFrame(rows)
     fig = px.scatter(
-        df, x="via", y="des", size="fea", color="fea",
-        color_continuous_scale="RdYlGn_r", range_color=[1, 5],
-        size_max=60, opacity=0.9,
-        hover_data={"name": True, "des":":.2f", "via":":.2f", "fea":":.2f"}
+        df,
+        x="via",
+        y="des",
+        size="fea",
+        color="fea",
+        color_continuous_scale="RdYlGn_r",
+        range_color=[1, 5],
+        size_max=60,
+        opacity=0.9,
+        hover_data={"name": True, "des": ":.2f", "via": ":.2f", "fea": ":.2f"},
     )
     fig.update_traces(
         mode="markers+text",
         text=df["name"].str.split().str[0],
         textposition="middle center",
-        marker=dict(line=dict(width=1, color="rgba(0,0,0,0.3)"))
+        marker=dict(line=dict(width=1, color="rgba(0,0,0,0.3)")),
     )
     if not show_legend:
         fig.update_coloraxes(showscale=False)
     fig.update_layout(
-        xaxis_title="Viability",
-        yaxis_title="Desirability",
+        xaxis_title="Viability (Likelihood to Purchase)",
+        yaxis_title="Desirability (Consumer Appeal)",
         plot_bgcolor="white",
         paper_bgcolor="white",
         height=520,
-        margin=dict(l=120, r=30, t=30, b=100)
+        margin=dict(l=120, r=30, t=30, b=90),
     )
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-# ------------------------------
-# Persona Details (stub)
-# ------------------------------
+# ==============================
+# Tab 2 · Persona Details
+# ==============================
 with tab_det:
     st.subheader("Persona Details")
-    st.info("🚧 Demo: Select a persona below to view DVF breakdown")
-    sel = st.selectbox("Choose Persona", [p["name"] for p in personas])
-    # TODO: render a card or heatmap for that persona's individual responses
+    sel_name = st.selectbox("Choose Persona", [p["name"] for p in personas])
+    sel_p = next(p for p in personas if p["name"] == sel_name)
+    sel_r = next(r for r in responses if r["persona"] == sel_p["id"])
+    dvf = compute_dvf({k: v for k, v in sel_r.items() if k != "persona"}, sel_p["prior"], w_prior)
 
-# ------------------------------
-# Variance Matrix (stub)
-# ------------------------------
-with tab_var:
-    st.subheader("Question Variance Matrix")
-    st.caption("Heatmap of how responses vary across personas")
-    # TODO: build and plot a Plotly heatmap of each persona's answers per question
+    st.markdown(f"### {sel_name}")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Desirability", f"{dvf['des']:.2f}")
+        st.metric("Viability", f"{dvf['via']:.2f}")
+        st.metric("Feasibility", f"{dvf['fea']:.2f}")
+    with c2:
+        st.write("**Baseline Prior (1-5)**")
+        st.write(sel_p["prior"])
+    st.divider()
+    st.write("**Raw Questionnaire Answers (1-5)**")
+    for q in QUESTIONS:
+        st.write(f"*{q['text']}* — {sel_r[q['id']]}")
 
-# ------------------------------
-# Summary (stub)
-# ------------------------------
-with tab_sum:
-    st.subheader("Summary")
-    st.info("🚧 Demo: Metrics & bar charts go here")
-    # TODO: compute avg DVF metrics, top/bottom personas, most divisive question
-
-# ------------------------------
-# Compare & Export (placeholders)
-# ------------------------------
-with tab_cmp:
-    st.subheader("Compare Concepts")
-    st.info("🚧 Demo: Upload another concept to compare panels")
-    st.file_uploader("Upload comparison JSON", type=["json"], disabled=True)
-
-with tab_exp:
-    st.subheader("Export")
-    st.info("🚧 Demo: Download CSV/JSON/PNG")
-    c1, c2, c3 = st.columns(3)
-    with c1: st.button("⬇️ CSV", disabled=True)
-    with c2: st.button("⬇️ JSON", disabled=True)
-    with c3: st.button("⬇️ PNG", disabled=True)
