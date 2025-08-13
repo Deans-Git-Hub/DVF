@@ -1,3 +1,10 @@
+
+
+
+
+
+
+
 # graza_segments_app.py
 """
 Graza Buyer Segmentation & Messaging — Demo
@@ -11,6 +18,39 @@ import numpy as np, pandas as pd
 import plotly.express as px, plotly.graph_objects as go
 from sklearn.decomposition import PCA
 import streamlit as st
+
+# ——— 1) Password gate ——————————————————————————
+PASSWORD = st.secrets.get("password")
+if PASSWORD is None:
+    st.error(
+        "⚠️ No `password` in secrets!\n\n"
+        "Add in `.streamlit/secrets.toml`:\n\n"
+        "    password = \"Synthetic!\"\n\n"
+        "or set it in your Streamlit Cloud Secrets."
+    )
+    st.stop()
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🔐 Please log in")
+    with st.form("login_form"):
+        pw     = st.text_input("Password", type="password", placeholder="••••••")
+        submit = st.form_submit_button("Unlock")
+    if submit:
+        if pw == PASSWORD:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("❌ Incorrect password.")
+    st.stop()
+
+
+
+
+
+
 
 # ─────────────────────────── Setup ────────────────────────────
 st.set_page_config(page_title="Graza Segmentation", layout="wide")
