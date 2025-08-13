@@ -36,7 +36,7 @@ FEATURES = [
 ]
 FEAT_IDS = [k for k, _ in FEATURES]
 
-# Segment dictionary (centroids + go-to-market guidance)
+# ───────────────── Segments (centroids + GTM guidance) ─────────────────
 SEGMENTS = [
     dict(
         id="seg_foodie",
@@ -71,10 +71,19 @@ SEGMENTS = [
     dict(
         id="seg_value",
         name="Value-Seeking Families",
+        # ↓ Tweaked to sit LOWER on Luxury (more value-seeking, less novelty/hosting/clean)
         centroid={
-            "flavor_adventure":2.9,"health_clean":3.6,"price_sensitivity":4.6,
-            "cook_freq":3.6,"convenience_need":3.2,"sustainability":3.0,
-            "squeeze_affinity":4.2,"online_grocery":3.5,"social_hosting":2.9,"novelty_seeking":2.6},
+            "flavor_adventure": 2.5,
+            "health_clean":     3.2,
+            "price_sensitivity":4.9,
+            "cook_freq":        3.4,
+            "convenience_need": 3.4,
+            "sustainability":   2.6,
+            "squeeze_affinity": 4.1,
+            "online_grocery":   3.2,
+            "social_hosting":   2.4,
+            "novelty_seeking":  2.1,
+        },
         value_props=["Everyday quality", "Mess-free squeeze", "Stretch your dollar"],
         offers=["Family multi-pack", "Loyalty credits", "Intro discount bundles"],
         channels=["Retailer apps", "Email offers", "Instacart promos"],
@@ -116,10 +125,19 @@ SEGMENTS = [
     dict(
         id="seg_trendy",
         name="Trendy Hosts",
+        # ↑ Tweaked to sit HIGHER on Luxury (lower price sensitivity, more novelty/hosting/clean)
         centroid={
-            "flavor_adventure":4.4,"health_clean":3.5,"price_sensitivity":2.2,
-            "cook_freq":3.5,"convenience_need":3.0,"sustainability":3.4,
-            "squeeze_affinity":4.1,"online_grocery":3.4,"social_hosting":4.8,"novelty_seeking":4.7},
+            "flavor_adventure": 4.7,
+            "health_clean":     3.9,
+            "price_sensitivity":1.7,
+            "cook_freq":        3.7,
+            "convenience_need": 3.1,
+            "sustainability":   3.8,
+            "squeeze_affinity": 4.2,
+            "online_grocery":   3.6,
+            "social_hosting":   4.9,
+            "novelty_seeking":  4.9,
+        },
         value_props=["Giftable design", "Wow factor for guests", "Seasonal collabs"],
         offers=["Limited edition drops", "Host bundle", "Creator collabs"],
         channels=["IG Reels / Pinterest", "Pop-ups & events", "PR / earned media"],
@@ -212,7 +230,7 @@ if flip2:
     Z_buyers[:, 1] *= -1
     Z_centroids[:, 1] *= -1
     comp2 *= -1
-effective_components = [comp1, comp2]  # use these for the explainer table
+effective_components = [comp1, comp2]  # for the explainer table
 
 # ────────────────────────── Tabs ──────────────────────────────
 tab_map, tab_people, tab_explore, tab_library, tab_data = st.tabs(
@@ -276,52 +294,33 @@ with tab_map:
 
 # ─────────────────────── Individuals ──────────────────────────
 with tab_people:
-    st.subheader("Describe the individuals → see where they land")
-    # Build a compact card-like table for a small sample
-    sample_idx = list(range(min(10, len(labels))))
-    cards = []
-    for i in sample_idx:
-        # compute probabilities for the synthetic record
-        x = buyers[i]
-        probs, _ = nearest_centroid_probs(x, C, temp=TEMP)
-        seg_idx = int(np.argmax(probs))
-        seg_name = SEGMENTS[seg_idx]["name"]
-        top2 = np.argsort(probs)[::-1][:2]
-        cards.append(dict(
-            Buyer=f"Buyer {i+1}",
-            Segment=seg_name,
-            Confidence=f"{(probs[top2[0]]*100):.0f}%",
-            RunnerUp=SEGMENTS[top2[1]]["name"],
-        ))
-    st.dataframe(pd.DataFrame(cards), use_container_width=True)
-    st.caption("This table summarizes a subset of buyers. Explore any buyer in detail in the next tab.")
+    st.subheader("Backstory examples by segment")
 
-    # --- Backstories by segment ---
-    st.markdown("### Backstory examples by segment")
     backstories = {
         "Flavor-First Foodies": [
-            "A Brooklyn home cook who hosts friends weekly and loves experimenting with bold flavors; buys limited drops and follows chef creators.",
+            "Marisol is a Brooklyn home cook who hosts friends almost every weekend. She follows chef creators on Instagram and treats her pantry like a studio—always chasing a peppery finish or a new drizzle that wakes up roasted vegetables. Packaging matters, but she’ll pay more for single-origin flavor and chef-taught techniques she can execute on a weeknight."
         ],
         "Clean-Label Purists": [
-            "A wellness-focused parent scanning labels for additives; wants traceability and fresh rotation via subscribe & save.",
+            "Jason is a wellness-focused parent who reads every label and compares sourcing claims. He wants fresh harvest, traceability, and a routine that keeps quality high—think subscribe-and-save with clear provenance. His decision unlocks when he sees certifications, storage guidance, and proof that Graza’s squeeze keeps oxygen out between uses."
         ],
         "Value-Seeking Families": [
-            "Two-kid household juggling weeknights; looks for multi-packs and loyalty credits, loves the no-mess squeeze bottle.",
+            "Tanya and Rob juggle two school schedules and weeknight dinners. They love that the squeeze bottle keeps counters clean and portions consistent, but they’re price-watchers first. Multi-packs, loyalty credits, and simple ‘feed-the-family’ recipes speak to them far more than limited collabs or gifting stories."
         ],
         "Time-Saving Meal Hackers": [
-            "Startup PM who cooks fast between calls; shops online, wants quick recipes and one-squeeze consistency.",
+            "Dev is a startup PM who buys groceries online and cooks in 20-minute windows between calls. He wants reliable heat behavior and one-squeeze consistency, plus quick-start recipes that remove cognitive load. Trial bundles, refill two-packs, and short tutorial clips convert him quickly."
         ],
         "Sustainable Shoppers": [
-            "Urban professional prioritizing lower-footprint packaging and responsible sourcing; prefers bulk/refill options.",
+            "Ava prioritizes lower-footprint choices and responsible sourcing. She’s willing to pay a modest premium if she understands the environmental impact—refill options, durable bottles, and a transparent supply chain matter. She shares sustainability wins in her group chats and appreciates brands that report progress, not perfection."
         ],
         "Trendy Hosts": [
-            "Design-savvy hostess who curates tablescapes; seeks giftable bottles and seasonal collabs that ‘wow’ guests.",
+            "Luca is the friend whose dinner parties end up on Stories. He curates tablescapes, gifts good-looking pantry staples, and loves seasonal drops that spark conversation. Price is a minor consideration compared with design, flavor ‘wow,’ and the joy of unveiling something new to guests—exactly where Graza’s limited editions and host bundles shine."
         ],
     }
+
     for seg_name, stories in backstories.items():
-        with st.expander(f"{seg_name} — examples"):
+        with st.expander(seg_name):
             for s_text in stories:
-                st.write(f"• {s_text}")
+                st.write(s_text)
 
 # ─────────────────────── Buyer Explorer ───────────────────────
 with tab_explore:
