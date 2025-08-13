@@ -1,14 +1,15 @@
 # graza_segments_app.py
 """
 Graza Buyer Segmentation & Messaging — Demo
-Axes: X = Convenience, Y = Premium / Luxury
 Run:
-    pip install streamlit numpy pandas plotly
+    pip install streamlit numpy pandas plotly scikit-learn
     streamlit run graza_segments_app.py
 """
 
 import numpy as np, pandas as pd
 import plotly.express as px, plotly.graph_objects as go
+from sklearn.decomposition import PCA
+from dataclasses import dataclass
 import streamlit as st
 
 # ─────────────────────────── Setup ────────────────────────────
@@ -28,7 +29,6 @@ FEATURES = [
     ("social_hosting", "Entertains / hosts often"),
     ("novelty_seeking", "Enjoys new products / trends"),
 ]
-FEAT_IDS = [k for k, _ in FEATURES]
 
 # Segment dictionary (centroids + go-to-market guidance)
 SEGMENTS = [
@@ -123,52 +123,36 @@ SEGMENTS = [
         ],
     ),
 ]
+
+SEG_LOOKUP = {s["id"]: s for s in SEGMENTS}
 SEG_NAMES = [s["name"] for s in SEGMENTS]
+FEAT_IDS = [k for k, _ in FEATURES]
 
 # ───────────────────── Utility Functions ──────────────────────
-def vec_from_dict(d): return np.array([float(d[k]) for k in FEAT_IDS])
+def vec_from_dict(d):
+    return np.array([float(d[k]) for k in FEAT_IDS])
 
 def nearest_centroid_probs(x, centroids, temp=1.2):
+    # distance → probability via softmax on negative distance
     dists = np.linalg.norm(centroids - x, axis=1)
     logits = -dists / max(1e-6, temp)
-    e = np.exp(logits - logits.max())
-    return e / e.sum(), dists
+    expv = np.exp(logits - logits.max())
+    return expv / expv.sum(), dists
+
+def make_pca(centroids, buyers):
+    X = np.vstack([centroids, buyers])
+    pca = PCA(n_components=2, random_state=42)
+    pca.fit(X)
+    return pca
+
+def project_2d(pca, X):
+    Z = pca.transform(X)
+    # normalize for pretty plotting
+    Z = (Z - Z.mean(0)) / (Z.std(0) + 1e-9)
+    return Z
 
 def segment_palette():
     return {s["name"]: c for s, c in zip(SEGMENTS, px.colors.qualitative.Set2)}
-
-# ── Interpretable axes: Convenience (x) & Premium/Luxury (y) ──
-W_CONV = {
-    "convenience_need": 0.45,
-    "online_grocery":   0.30,
-    "squeeze_affinity": 0.25,
-}
-W_PREM = {
-    "price_sensitivity_inv": 0.25,  # (5 - price_sensitivity)
-    "flavor_adventure":      0.25,
-    "novelty_seeking":       0.20,
-    "social_hosting":        0.15,
-    "health_clean":          0.10,
-    "sustainability":        0.05,
-}
-
-def _weighted_sum(row, weights):
-    return sum(weights[k] * row[k] for k in weights)
-
-def business_axes_from_df(df):
-    """Return (x_conv, y_prem) on 0–5 scale for a DF with the 10 feature columns."""
-    df2 = df.copy()
-    df2["price_sensitivity_inv"] = 5.0 - df2["price_sensitivity"]
-    x = df2.apply(lambda r: _weighted_sum(r, W_CONV), axis=1)
-    y = df2.apply(lambda r: _weighted_sum(r, W_PREM), axis=1)
-    return x.values, y.values
-
-def business_axes_from_centroids(centroids_dicts):
-    rows = []
-    for c in centroids_dicts:
-        rows.append({k: float(c[k]) for k in FEAT_IDS})
-    df = pd.DataFrame(rows)
-    return business_axes_from_df(df)
 
 # ─────────────────────── Sidebar Inputs ───────────────────────
 with st.sidebar:
@@ -188,32 +172,55 @@ with st.sidebar:
 
 # ─────────────────── Synthetic Buyer Cohort ───────────────────
 rng = np.random.default_rng(seed)
-C = np.vstack([vec_from_dict(s["centroid"]) for s in SEGMENTS])  # centroid matrix
 
-buyers, labels = [], []
-for _ in range(n_syn):
-    sidx = rng.integers(0, len(SEGMENTS))
-    base = C[sidx]
+# build centroid matrix
+C = np.vstack([vec_from_dict(s["centroid"]) for s in SEGMENTS])
+
+# sample synthetic buyers around centroids
+buyers = []
+labels = []
+for i in range(n_syn):
+    # pick a segment, then sample a buyer around its centroid
+    s = rng.integers(0, len(SEGMENTS))
+    base = C[s]
     sample = rng.normal(base, spread, size=len(FEAT_IDS))
     sample = np.clip(sample, 0, 5)
     buyers.append(sample)
-    labels.append(SEGMENTS[sidx]["name"])
+    labels.append(SEGMENTS[s]["name"])
+
 buyers = np.array(buyers)
 
 # session_state cohort (for added buyers)
 if "cohort" not in st.session_state:
     st.session_state.cohort = []
+
 if add_btn:
     st.session_state.cohort.append(dict(profile=nb.copy()))
 
+# materialize cohort into arrays
 cohort_rows = []
 for i, row in enumerate(st.session_state.cohort):
     x = vec_from_dict(row["profile"])
-    probs, _ = nearest_centroid_probs(x, C, temp=temp)
+    probs, dists = nearest_centroid_probs(x, C, temp=temp)
     seg_idx = int(np.argmax(probs))
     seg_name = SEGMENTS[seg_idx]["name"]
     cohort_rows.append({"id": f"user_{i+1}", "segment": seg_name, **row["profile"]})
+
 cohort_df = pd.DataFrame(cohort_rows) if cohort_rows else pd.DataFrame(columns=["id","segment",*FEAT_IDS])
+
+# combined dataset: synthetic + (optional) cohort
+combined = buyers
+combined_labels = labels
+if not cohort_df.empty:
+    extra = cohort_df[FEAT_IDS].values
+    combined = np.vstack([combined, extra])
+    combined_labels = combined_labels + cohort_df["segment"].tolist()
+
+# ───────────────────── PCA Projection (Map) ───────────────────
+pca = make_pca(C, combined)
+Z_centroids = project_2d(pca, C)
+Z_buyers = project_2d(pca, buyers)
+Z_extra = project_2d(pca, cohort_df[FEAT_IDS].values) if not cohort_df.empty else np.empty((0,2))
 
 # ────────────────────────── Tabs ──────────────────────────────
 tab_map, tab_people, tab_explore, tab_library, tab_data = st.tabs(
@@ -222,110 +229,89 @@ tab_map, tab_people, tab_explore, tab_library, tab_data = st.tabs(
 
 # ───────────────────── Segmentation Map ───────────────────────
 with tab_map:
-    st.subheader("Where buyers fall (X: Convenience, Y: Premium / Luxury)")
+    st.subheader("Where buyers fall (2D projection of 10-feature space)")
 
-    # Base DF for plotting
-    df_syn = pd.DataFrame(buyers, columns=FEAT_IDS)
-    df_syn["segment"] = labels
-    df_syn["type"] = "Synthetic"
+    df_map = pd.DataFrame({
+        "x": Z_buyers[:,0], "y": Z_buyers[:,1],
+        "segment": labels, "type": ["Synthetic"]*len(labels)
+    })
     if not cohort_df.empty:
-        df_add = cohort_df.copy()
-        df_add["type"] = "Added"
-        df_plot = pd.concat([df_syn, df_add[["segment", *FEAT_IDS, "type"]]], ignore_index=True)
-    else:
-        df_plot = df_syn
-
-    # Segment centroids DataFrame
-    df_cent = pd.DataFrame([s["centroid"] for s in SEGMENTS])
-    df_cent["segment"] = [s["name"] for s in SEGMENTS]
-
-    # Compute business axes for buyers & centroids
-    x_buy, y_buy = business_axes_from_df(df_plot[FEAT_IDS])
-    x_cent, y_cent = business_axes_from_centroids([s["centroid"] for s in SEGMENTS])
-
-    df_plot["x"] = x_buy
-    df_plot["y"] = y_buy
-    df_cent["x"] = x_cent
-    df_cent["y"] = y_cent
-
-    # Convenience / Premium scores for hover
-    df_plot["Convenience"] = df_plot["x"]
-    df_plot["Premium/Luxury"] = df_plot["y"]
+        df_extra = pd.DataFrame({
+            "x": Z_extra[:,0], "y": Z_extra[:,1],
+            "segment": cohort_df["segment"], "type": ["Added"]*len(Z_extra)
+        })
+        df_map = pd.concat([df_map, df_extra], ignore_index=True)
 
     fig = px.scatter(
-        df_plot, x="x", y="y", color="segment", symbol="type",
-        opacity=0.9,
-        labels={"x": "Convenience", "y": "Premium / Luxury"},
+        df_map, x="x", y="y", color="segment", symbol="type",
+        opacity=0.9, labels={"x":"Axis 1", "y":"Axis 2"},
         color_discrete_map=segment_palette(), height=620,
-        hover_data={"segment": True, "x":":.2f", "y":":.2f", "type": True,
-                    "Convenience":":.2f","Premium/Luxury":":.2f"},
+        hover_data={"segment":True, "x":":.2f","y":":.2f","type":True},
     )
 
-    # Segment centroids as anchors
+    # segment centroids as anchors
+    df_c = pd.DataFrame({
+        "x": Z_centroids[:,0], "y": Z_centroids[:,1],
+        "segment": [s["name"] for s in SEGMENTS]
+    })
     fig.add_trace(go.Scatter(
-        x=df_cent["x"], y=df_cent["y"], mode="markers+text",
-        text=[n.split()[0] for n in df_cent["segment"]],
+        x=df_c["x"], y=df_c["y"],
+        mode="markers+text",
+        text=[n.split()[0] for n in df_c["segment"]],
         textposition="top center",
         marker=dict(size=18, line=dict(width=2, color="white"), symbol="diamond"),
-        name="Segment centroid", hoverinfo="skip", showlegend=True
+        name="Segment centroid",
+        hoverinfo="skip",
+        showlegend=True
     ))
 
-    # Density overlay (optional)
+    # optional density overlay
     if show_density:
         fig.add_trace(go.Histogram2dContour(
-            x=df_plot["x"], y=df_plot["y"],
+            x=df_map["x"], y=df_map["y"],
             ncontours=6, showscale=False, colorscale="Greys", opacity=0.20,
             name="Density"
         ))
 
-    # Crosshairs & quadrant labels
-    mx, my = float(df_plot["x"].median()), float(df_plot["y"].median())
-    fig.add_vline(mx, line_color="rgba(0,0,0,.15)")
-    fig.add_hline(my, line_color="rgba(0,0,0,.15)")
-    padx = (df_plot["x"].max() - df_plot["x"].min()) * 0.04
-    pady = (df_plot["y"].max() - df_plot["y"].min()) * 0.04
-    for x_, y_, txt in [
-        (mx+padx, my+pady, "Effortless Luxury"),
-        (mx-padx, my+pady, "Culinary Experience"),
-        (mx+padx, my-pady, "Quick & Practical"),
-        (mx-padx, my-pady, "Traditional Value"),
-    ]:
-        fig.add_annotation(x=x_, y=y_, text=txt, showarrow=False, opacity=0.7)
-
     fig.update_layout(
-        xaxis=dict(range=[0,5]),
-        yaxis=dict(range=[0,5]),
         plot_bgcolor="white", paper_bgcolor="white",
         margin=dict(l=60, r=30, t=20, b=60),
         legend=dict(orientation="h", y=1.05, x=0)
     )
+    fig.add_hline(0, line_color="rgba(0,0,0,.15)")
+    fig.add_vline(0, line_color="rgba(0,0,0,.15)")
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    st.caption("Convenience = speed, online, squeeze. Premium/Luxury = flavor/novelty/hosting, clean/sustainable, lower price sensitivity.")
+    st.caption("Tip: Add buyers in the sidebar to see them appear as diamonds overlayed with segment centroids.")
 
 # ─────────────────────── Individuals ──────────────────────────
 with tab_people:
     st.subheader("Describe the individuals → see where they land")
-    # Summarize a subset of synthetic buyers
-    rows = []
-    for i in range(min(10, len(labels))):
+    # Build a compact card-like table for a small sample
+    sample_idx = list(range(min(10, len(labels))))
+    cards = []
+    for i in sample_idx:
+        # compute probabilities for the synthetic record
         x = buyers[i]
         probs, _ = nearest_centroid_probs(x, C, temp=temp)
         seg_idx = int(np.argmax(probs))
         seg_name = SEGMENTS[seg_idx]["name"]
-        conv, prem = business_axes_from_df(pd.DataFrame([dict(zip(FEAT_IDS, x))]))
-        rows.append(dict(
+        top2 = np.argsort(probs)[::-1][:2]
+        cards.append(dict(
             Buyer=f"Buyer {i+1}",
             Segment=seg_name,
-            Convenience=f"{conv[0]:.2f}",
-            Premium_Luxury=f"{prem[0]:.2f}",
+            Confidence=f"{(probs[top2[0]]*100):.0f}%",
+            RunnerUp=SEGMENTS[top2[1]]["name"],
         ))
-    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+    st.dataframe(pd.DataFrame(cards), use_container_width=True)
+
     st.caption("This table summarizes a subset of buyers. Explore any buyer in detail in the next tab.")
 
 # ─────────────────────── Buyer Explorer ───────────────────────
 with tab_explore:
     st.subheader("Classify a single buyer & tailor the playbook")
+
+    # choose source: synthetic or added
     mode = st.radio("Select source", ["Synthetic", "Added (from sidebar)"], horizontal=True)
     if mode == "Synthetic":
         idx = st.slider("Pick synthetic buyer", 1, len(labels), 1)
@@ -340,11 +326,12 @@ with tab_explore:
             x = cohort_df[FEAT_IDS].iloc[sel-1].values
 
     if x is not None:
-        probs, _ = nearest_centroid_probs(x, C, temp=temp)
+        probs, dists = nearest_centroid_probs(x, C, temp=temp)
         order = np.argsort(probs)[::-1]
         top = order[0]
         winner = SEGMENTS[top]
 
+        # Show probability bars
         prob_df = pd.DataFrame({
             "Segment":[SEGMENTS[i]["name"] for i in order],
             "Probability":[float(probs[i]) for i in order]
@@ -355,27 +342,29 @@ with tab_explore:
         bar.update_layout(coloraxis_showscale=False, plot_bgcolor="white", paper_bgcolor="white", margin=dict(l=80,r=30,t=20,b=40))
         st.plotly_chart(bar, use_container_width=True, config={"displayModeBar":False})
 
-        # Convenience & Premium metrics
-        conv, prem = business_axes_from_df(pd.DataFrame([dict(zip(FEAT_IDS, x))]))
+        # Radar vs centroid
+        def _radar_row(name, vec):
+            return {"Variable": name, **{k:v for k,v in zip(FEAT_IDS, vec)}}
+        radar_df = pd.DataFrame([_radar_row("Buyer", x), _radar_row(winner["name"], vec_from_dict(winner["centroid"]))])
+        rfig = px.line_polar(radar_df.melt(id_vars="Variable", var_name="Feature", value_name="Score"),
+                             r="Score", theta="Feature", color="Variable", line_close=True, range_r=[0,5], height=420)
+        rfig.update_traces(fill="toself")
+        rfig.update_layout(showlegend=True, polar=dict(bgcolor="white"))
+        st.plotly_chart(rfig, use_container_width=True, config={"displayModeBar":False})
+
+        # Tailored guidance
         c1,c2,c3 = st.columns(3)
         with c1:
             st.markdown("#### 🧭 Recommended segment")
             st.metric(winner["name"], f"{probs[top]*100:.0f}% match")
         with c2:
-            st.markdown("#### ⚡ Convenience")
-            st.metric("Score (0–5)", f"{conv[0]:.2f}")
+            st.markdown("#### 💎 Value props to emphasize")
+            for v in winner["value_props"]:
+                st.write(f"- {v}")
         with c3:
-            st.markdown("#### 💎 Premium / Luxury")
-            st.metric("Score (0–5)", f"{prem[0]:.2f}")
-
-        st.markdown("#### 💎 Value props to emphasize")
-        for v in winner["value_props"]:
-            st.write(f"- {v}")
-
-        st.markdown("#### 📣 Channels to prioritize")
-        for ch in winner["channels"]:
-            st.write(f"- {ch}")
-
+            st.markdown("#### 📣 Channels to prioritize")
+            for ch in winner["channels"]:
+                st.write(f"- {ch}")
         st.markdown("#### ✍️ Messaging")
         for m in winner["messages"]:
             st.write(f"• {m}")
@@ -408,30 +397,22 @@ with tab_library:
 # ─────────────────────── Data & Export ────────────────────────
 with tab_data:
     st.subheader("Current cohort data")
+    # build combined DF for export (synthetic only for brevity)
     syn_df = pd.DataFrame(buyers, columns=FEAT_IDS)
     # classify all for table
-    segs, convs, prems = [], [], []
+    segs = []
     for i in range(len(syn_df)):
         p,_ = nearest_centroid_probs(buyers[i], C, temp=temp)
         segs.append(SEGMENTS[int(np.argmax(p))]["name"])
-        c,prem = business_axes_from_df(pd.DataFrame([dict(zip(FEAT_IDS, buyers[i]))]))
-        convs.append(c[0]); prems.append(prem[0])
     syn_df.insert(0, "segment", segs)
-    syn_df.insert(1, "convenience", [f"{v:.2f}" for v in convs])
-    syn_df.insert(2, "premium_luxury", [f"{v:.2f}" for v in prems])
     syn_df.insert(0, "id", [f"buyer_{i+1}" for i in range(len(syn_df))])
 
     if not cohort_df.empty:
-        # add computed axes for added buyers
-        c_add, p_add = business_axes_from_df(cohort_df[FEAT_IDS])
-        export_df = cohort_df.copy()
-        export_df.insert(1, "convenience", [f"{v:.2f}" for v in c_add])
-        export_df.insert(2, "premium_luxury", [f"{v:.2f}" for v in p_add])
-        export_df = pd.concat([syn_df, export_df.reset_index(drop=True)], ignore_index=True, sort=False)
+        export_df = pd.concat([syn_df, cohort_df.reset_index(drop=True)], ignore_index=True, sort=False)
     else:
         export_df = syn_df
 
     st.dataframe(export_df, use_container_width=True, height=380)
     st.download_button("⬇️ Download CSV", export_df.to_csv(index=False).encode(),
                        "graza_segmented_buyers.csv", "text/csv")
-    st.caption("Columns are 10 features (0–5), inferred segment labels, and the composite axes.")
+    st.caption("Columns are 10 features (0–5), plus inferred segment labels.")
