@@ -16,6 +16,12 @@ import streamlit as st
 st.set_page_config(page_title="Graza Segmentation", layout="wide")
 st.title("🫒 Graza Buyer Segmentation & Messaging (Demo)")
 
+# Internal constants (no UI)
+SEED = 1234          # RNG for reproducible synthetic data
+SPREAD = 0.35        # how tight buyers cluster around segment centroids
+TEMP = 1.2           # segmentation temperature for softmax
+SHOW_DENSITY = True  # show density contours on the map
+
 # Global feature space (0–5 scale)
 FEATURES = [
     ("flavor_adventure", "Loves bold flavors / variety"),
@@ -132,7 +138,7 @@ FEAT_IDS = [k for k, _ in FEATURES]
 def vec_from_dict(d):
     return np.array([float(d[k]) for k in FEAT_IDS])
 
-def nearest_centroid_probs(x, centroids, temp=1.2):
+def nearest_centroid_probs(x, centroids, temp=TEMP):
     # distance → probability via softmax on negative distance
     dists = np.linalg.norm(centroids - x, axis=1)
     logits = -dists / max(1e-6, temp)
@@ -154,24 +160,38 @@ def project_2d(pca, X):
 def segment_palette():
     return {s["name"]: c for s, c in zip(SEGMENTS, px.colors.qualitative.Set2)}
 
+# --- PCA interpretability helpers ---
+def _pca_components(p):
+    return p.components_ if hasattr(p, "components_") else p["components"]
+
+def axis_loadings_table(pca):
+    comps = _pca_components(pca)[:2]  # PC1, PC2
+    feat_ids = FEAT_IDS
+    feat_names = dict(FEATURES)
+    rows = []
+    for i, w in enumerate(comps, start=1):
+        s = pd.Series(w, index=feat_ids).sort_values()
+        rows.append({
+            "Axis": f"Axis {i}",
+            "Top (+)": ", ".join(feat_names[f] for f in s.tail(3).index),
+            "Top (–)": ", ".join(feat_names[f] for f in s.head(3).index),
+        })
+    return pd.DataFrame(rows)
+
+def label_axis_from_weights(weights, k=2):
+    s = pd.Series(weights, index=FEAT_IDS).sort_values()
+    names = dict(FEATURES)
+    pos = " + ".join(names[f] for f in s.tail(k).index)
+    neg = " + ".join(names[f] for f in s.head(k).index)
+    return f"{pos} ↔ {neg}"
+
 # ─────────────────────── Sidebar Inputs ───────────────────────
 with st.sidebar:
     st.header("Controls")
     n_syn = st.slider("Synthetic buyers", 30, 400, 120, 10)
-    seed = st.slider("Random seed", 0, 9999, 1234, 1)
-    spread = st.slider("Segment spread (σ)", 0.10, 1.00, 0.35, 0.05)
-    temp = st.slider("Segmentation temperature", 0.6, 3.0, 1.2, 0.1,
-                     help="Higher = softer probabilities")
-    show_density = st.checkbox("Show density contours", True)
-    st.markdown("---")
-    st.markdown("**Add a new buyer** (optional)")
-    nb = {}
-    for fid, label in FEATURES:
-        nb[fid] = st.slider(label, 0.0, 5.0, 3.0, 0.1, key=f"new_{fid}")
-    add_btn = st.button("➕ Add buyer to cohort")
 
 # ─────────────────── Synthetic Buyer Cohort ───────────────────
-rng = np.random.default_rng(seed)
+rng = np.random.default_rng(SEED)
 
 # build centroid matrix
 C = np.vstack([vec_from_dict(s["centroid"]) for s in SEGMENTS])
@@ -179,48 +199,26 @@ C = np.vstack([vec_from_dict(s["centroid"]) for s in SEGMENTS])
 # sample synthetic buyers around centroids
 buyers = []
 labels = []
-for i in range(n_syn):
+for _ in range(n_syn):
     # pick a segment, then sample a buyer around its centroid
     s = rng.integers(0, len(SEGMENTS))
     base = C[s]
-    sample = rng.normal(base, spread, size=len(FEAT_IDS))
+    sample = rng.normal(base, SPREAD, size=len(FEAT_IDS))
     sample = np.clip(sample, 0, 5)
     buyers.append(sample)
     labels.append(SEGMENTS[s]["name"])
-
 buyers = np.array(buyers)
 
-# session_state cohort (for added buyers)
-if "cohort" not in st.session_state:
-    st.session_state.cohort = []
-
-if add_btn:
-    st.session_state.cohort.append(dict(profile=nb.copy()))
-
-# materialize cohort into arrays
-cohort_rows = []
-for i, row in enumerate(st.session_state.cohort):
-    x = vec_from_dict(row["profile"])
-    probs, dists = nearest_centroid_probs(x, C, temp=temp)
-    seg_idx = int(np.argmax(probs))
-    seg_name = SEGMENTS[seg_idx]["name"]
-    cohort_rows.append({"id": f"user_{i+1}", "segment": seg_name, **row["profile"]})
-
-cohort_df = pd.DataFrame(cohort_rows) if cohort_rows else pd.DataFrame(columns=["id","segment",*FEAT_IDS])
-
-# combined dataset: synthetic + (optional) cohort
-combined = buyers
-combined_labels = labels
-if not cohort_df.empty:
-    extra = cohort_df[FEAT_IDS].values
-    combined = np.vstack([combined, extra])
-    combined_labels = combined_labels + cohort_df["segment"].tolist()
-
 # ───────────────────── PCA Projection (Map) ───────────────────
-pca = make_pca(C, combined)
+pca = make_pca(C, buyers)  # fit on centroids + current buyers
 Z_centroids = project_2d(pca, C)
 Z_buyers = project_2d(pca, buyers)
-Z_extra = project_2d(pca, cohort_df[FEAT_IDS].values) if not cohort_df.empty else np.empty((0,2))
+
+# Compute human-readable axis labels from PCA loadings
+pc_labels = [
+    label_axis_from_weights(_pca_components(pca)[0]),
+    label_axis_from_weights(_pca_components(pca)[1]),
+]
 
 # ────────────────────────── Tabs ──────────────────────────────
 tab_map, tab_people, tab_explore, tab_library, tab_data = st.tabs(
@@ -235,18 +233,13 @@ with tab_map:
         "x": Z_buyers[:,0], "y": Z_buyers[:,1],
         "segment": labels, "type": ["Synthetic"]*len(labels)
     })
-    if not cohort_df.empty:
-        df_extra = pd.DataFrame({
-            "x": Z_extra[:,0], "y": Z_extra[:,1],
-            "segment": cohort_df["segment"], "type": ["Added"]*len(Z_extra)
-        })
-        df_map = pd.concat([df_map, df_extra], ignore_index=True)
 
     fig = px.scatter(
         df_map, x="x", y="y", color="segment", symbol="type",
-        opacity=0.9, labels={"x":"Axis 1", "y":"Axis 2"},
+        opacity=0.9,
+        labels={"x": f"Axis 1: {pc_labels[0]}", "y": f"Axis 2: {pc_labels[1]}"},
         color_discrete_map=segment_palette(), height=620,
-        hover_data={"segment":True, "x":":.2f","y":":.2f","type":True},
+        hover_data={"segment":True,"x":":.2f","y":":.2f","type":True},
     )
 
     # segment centroids as anchors
@@ -265,8 +258,8 @@ with tab_map:
         showlegend=True
     ))
 
-    # optional density overlay
-    if show_density:
+    # optional density overlay (always on in this simplified version)
+    if SHOW_DENSITY:
         fig.add_trace(go.Histogram2dContour(
             x=df_map["x"], y=df_map["y"],
             ncontours=6, showscale=False, colorscale="Greys", opacity=0.20,
@@ -280,9 +273,13 @@ with tab_map:
     )
     fig.add_hline(0, line_color="rgba(0,0,0,.15)")
     fig.add_vline(0, line_color="rgba(0,0,0,.15)")
+    
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    st.caption("Tip: Add buyers in the sidebar to see them appear as diamonds overlayed with segment centroids.")
+    with st.expander("What do Axis 1 and Axis 2 mean?"):
+        st.write("They’re PCA directions (weighted blends of features) fitted on this dataset.")
+        st.dataframe(axis_loadings_table(pca), use_container_width=True)
+        st.caption("Signs can flip; meanings can rotate if you change the cohort size (slider).")
 
 # ─────────────────────── Individuals ──────────────────────────
 with tab_people:
@@ -293,7 +290,7 @@ with tab_people:
     for i in sample_idx:
         # compute probabilities for the synthetic record
         x = buyers[i]
-        probs, _ = nearest_centroid_probs(x, C, temp=temp)
+        probs, _ = nearest_centroid_probs(x, C, temp=TEMP)
         seg_idx = int(np.argmax(probs))
         seg_name = SEGMENTS[seg_idx]["name"]
         top2 = np.argsort(probs)[::-1][:2]
@@ -304,73 +301,61 @@ with tab_people:
             RunnerUp=SEGMENTS[top2[1]]["name"],
         ))
     st.dataframe(pd.DataFrame(cards), use_container_width=True)
-
     st.caption("This table summarizes a subset of buyers. Explore any buyer in detail in the next tab.")
 
 # ─────────────────────── Buyer Explorer ───────────────────────
 with tab_explore:
     st.subheader("Classify a single buyer & tailor the playbook")
 
-    # choose source: synthetic or added
-    mode = st.radio("Select source", ["Synthetic", "Added (from sidebar)"], horizontal=True)
-    if mode == "Synthetic":
-        idx = st.slider("Pick synthetic buyer", 1, len(labels), 1)
-        x = buyers[idx-1]
-    else:
-        if cohort_df.empty:
-            st.info("No added buyers yet. Use the sidebar to add one.")
-            x = None
-        else:
-            options = list(range(1, len(cohort_df)+1))
-            sel = st.selectbox("Pick added buyer", options, index=0)
-            x = cohort_df[FEAT_IDS].iloc[sel-1].values
+    # Only synthetic buyers in this simplified version
+    idx = st.slider("Pick synthetic buyer", 1, len(labels), 1)
+    x = buyers[idx-1]
 
-    if x is not None:
-        probs, dists = nearest_centroid_probs(x, C, temp=temp)
-        order = np.argsort(probs)[::-1]
-        top = order[0]
-        winner = SEGMENTS[top]
+    probs, dists = nearest_centroid_probs(x, C, temp=TEMP)
+    order = np.argsort(probs)[::-1]
+    top = order[0]
+    winner = SEGMENTS[top]
 
-        # Show probability bars
-        prob_df = pd.DataFrame({
-            "Segment":[SEGMENTS[i]["name"] for i in order],
-            "Probability":[float(probs[i]) for i in order]
-        })
-        bar = px.bar(prob_df, x="Probability", y="Segment", orientation="h",
-                     range_x=[0,1], height=320, text=[f"{p*100:.0f}%" for p in prob_df["Probability"]],
-                     color="Probability", color_continuous_scale="Blues")
-        bar.update_layout(coloraxis_showscale=False, plot_bgcolor="white", paper_bgcolor="white", margin=dict(l=80,r=30,t=20,b=40))
-        st.plotly_chart(bar, use_container_width=True, config={"displayModeBar":False})
+    # Show probability bars
+    prob_df = pd.DataFrame({
+        "Segment":[SEGMENTS[i]["name"] for i in order],
+        "Probability":[float(probs[i]) for i in order]
+    })
+    bar = px.bar(prob_df, x="Probability", y="Segment", orientation="h",
+                 range_x=[0,1], height=320, text=[f"{p*100:.0f}%" for p in prob_df["Probability"]],
+                 color="Probability", color_continuous_scale="Blues")
+    bar.update_layout(coloraxis_showscale=False, plot_bgcolor="white", paper_bgcolor="white", margin=dict(l=80,r=30,t=20,b=40))
+    st.plotly_chart(bar, use_container_width=True, config={"displayModeBar":False})
 
-        # Radar vs centroid
-        def _radar_row(name, vec):
-            return {"Variable": name, **{k:v for k,v in zip(FEAT_IDS, vec)}}
-        radar_df = pd.DataFrame([_radar_row("Buyer", x), _radar_row(winner["name"], vec_from_dict(winner["centroid"]))])
-        rfig = px.line_polar(radar_df.melt(id_vars="Variable", var_name="Feature", value_name="Score"),
-                             r="Score", theta="Feature", color="Variable", line_close=True, range_r=[0,5], height=420)
-        rfig.update_traces(fill="toself")
-        rfig.update_layout(showlegend=True, polar=dict(bgcolor="white"))
-        st.plotly_chart(rfig, use_container_width=True, config={"displayModeBar":False})
+    # Radar vs centroid
+    def _radar_row(name, vec):
+        return {"Variable": name, **{k:v for k,v in zip(FEAT_IDS, vec)}}
+    radar_df = pd.DataFrame([_radar_row("Buyer", x), _radar_row(winner["name"], vec_from_dict(winner["centroid"]))])
+    rfig = px.line_polar(radar_df.melt(id_vars="Variable", var_name="Feature", value_name="Score"),
+                         r="Score", theta="Feature", color="Variable", line_close=True, range_r=[0,5], height=420)
+    rfig.update_traces(fill="toself")
+    rfig.update_layout(showlegend=True, polar=dict(bgcolor="white"))
+    st.plotly_chart(rfig, use_container_width=True, config={"displayModeBar":False})
 
-        # Tailored guidance
-        c1,c2,c3 = st.columns(3)
-        with c1:
-            st.markdown("#### 🧭 Recommended segment")
-            st.metric(winner["name"], f"{probs[top]*100:.0f}% match")
-        with c2:
-            st.markdown("#### 💎 Value props to emphasize")
-            for v in winner["value_props"]:
-                st.write(f"- {v}")
-        with c3:
-            st.markdown("#### 📣 Channels to prioritize")
-            for ch in winner["channels"]:
-                st.write(f"- {ch}")
-        st.markdown("#### ✍️ Messaging")
-        for m in winner["messages"]:
-            st.write(f"• {m}")
+    # Tailored guidance
+    c1,c2,c3 = st.columns(3)
+    with c1:
+        st.markdown("#### 🧭 Recommended segment")
+        st.metric(winner["name"], f"{probs[top]*100:.0f}% match")
+    with c2:
+        st.markdown("#### 💎 Value props to emphasize")
+        for v in winner["value_props"]:
+            st.write(f"- {v}")
+    with c3:
+        st.markdown("#### 📣 Channels to prioritize")
+        for ch in winner["channels"]:
+            st.write(f"- {ch}")
+    st.markdown("#### ✍️ Messaging")
+    for m in winner["messages"]:
+        st.write(f"• {m}")
 
-        st.markdown("#### 💡 Offer ideas")
-        st.write(", ".join(winner["offers"]))
+    st.markdown("#### 💡 Offer ideas")
+    st.write(", ".join(winner["offers"]))
 
 # ─────────────────── Offers & Messaging Library ───────────────
 with tab_library:
@@ -397,22 +382,17 @@ with tab_library:
 # ─────────────────────── Data & Export ────────────────────────
 with tab_data:
     st.subheader("Current cohort data")
-    # build combined DF for export (synthetic only for brevity)
+    # build synthetic DF for export
     syn_df = pd.DataFrame(buyers, columns=FEAT_IDS)
     # classify all for table
     segs = []
     for i in range(len(syn_df)):
-        p,_ = nearest_centroid_probs(buyers[i], C, temp=temp)
+        p,_ = nearest_centroid_probs(buyers[i], C, temp=TEMP)
         segs.append(SEGMENTS[int(np.argmax(p))]["name"])
     syn_df.insert(0, "segment", segs)
     syn_df.insert(0, "id", [f"buyer_{i+1}" for i in range(len(syn_df))])
 
-    if not cohort_df.empty:
-        export_df = pd.concat([syn_df, cohort_df.reset_index(drop=True)], ignore_index=True, sort=False)
-    else:
-        export_df = syn_df
-
-    st.dataframe(export_df, use_container_width=True, height=380)
-    st.download_button("⬇️ Download CSV", export_df.to_csv(index=False).encode(),
+    st.dataframe(syn_df, use_container_width=True, height=380)
+    st.download_button("⬇️ Download CSV", syn_df.to_csv(index=False).encode(),
                        "graza_segmented_buyers.csv", "text/csv")
     st.caption("Columns are 10 features (0–5), plus inferred segment labels.")
