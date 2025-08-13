@@ -9,7 +9,6 @@ Run:
 import numpy as np, pandas as pd
 import plotly.express as px, plotly.graph_objects as go
 from sklearn.decomposition import PCA
-from dataclasses import dataclass
 import streamlit as st
 
 # ─────────────────────────── Setup ────────────────────────────
@@ -35,6 +34,7 @@ FEATURES = [
     ("social_hosting", "Entertains / hosts often"),
     ("novelty_seeking", "Enjoys new products / trends"),
 ]
+FEAT_IDS = [k for k, _ in FEATURES]
 
 # Segment dictionary (centroids + go-to-market guidance)
 SEGMENTS = [
@@ -129,10 +129,10 @@ SEGMENTS = [
         ],
     ),
 ]
-
-SEG_LOOKUP = {s["id"]: s for s in SEGMENTS}
 SEG_NAMES = [s["name"] for s in SEGMENTS]
-FEAT_IDS = [k for k, _ in FEATURES]
+
+def segment_palette():
+    return {s["name"]: c for s, c in zip(SEGMENTS, px.colors.qualitative.Set2)}
 
 # ───────────────────── Utility Functions ──────────────────────
 def vec_from_dict(d):
@@ -157,33 +157,22 @@ def project_2d(pca, X):
     Z = (Z - Z.mean(0)) / (Z.std(0) + 1e-9)
     return Z
 
-def segment_palette():
-    return {s["name"]: c for s, c in zip(SEGMENTS, px.colors.qualitative.Set2)}
-
-# --- PCA interpretability helpers ---
+# PCA components helper
 def _pca_components(p):
     return p.components_ if hasattr(p, "components_") else p["components"]
 
-def axis_loadings_table(pca):
-    comps = _pca_components(pca)[:2]  # PC1, PC2
-    feat_ids = FEAT_IDS
+def axis_loadings_table_from_components(components):
+    """Show top positive/negative features for each axis (after orientation)."""
     feat_names = dict(FEATURES)
     rows = []
-    for i, w in enumerate(comps, start=1):
-        s = pd.Series(w, index=feat_ids).sort_values()
+    for i, w in enumerate(components, start=1):
+        s = pd.Series(w, index=FEAT_IDS).sort_values()
         rows.append({
             "Axis": f"Axis {i}",
             "Top (+)": ", ".join(feat_names[f] for f in s.tail(3).index),
             "Top (–)": ", ".join(feat_names[f] for f in s.head(3).index),
         })
     return pd.DataFrame(rows)
-
-def label_axis_from_weights(weights, k=2):
-    s = pd.Series(weights, index=FEAT_IDS).sort_values()
-    names = dict(FEATURES)
-    pos = " + ".join(names[f] for f in s.tail(k).index)
-    neg = " + ".join(names[f] for f in s.head(k).index)
-    return f"{pos} ↔ {neg}"
 
 # ─────────────────────── Sidebar Inputs ───────────────────────
 with st.sidebar:
@@ -200,13 +189,12 @@ C = np.vstack([vec_from_dict(s["centroid"]) for s in SEGMENTS])
 buyers = []
 labels = []
 for _ in range(n_syn):
-    # pick a segment, then sample a buyer around its centroid
-    s = rng.integers(0, len(SEGMENTS))
-    base = C[s]
+    sidx = rng.integers(0, len(SEGMENTS))  # pick a segment
+    base = C[sidx]
     sample = rng.normal(base, SPREAD, size=len(FEAT_IDS))
     sample = np.clip(sample, 0, 5)
     buyers.append(sample)
-    labels.append(SEGMENTS[s]["name"])
+    labels.append(SEGMENTS[sidx]["name"])
 buyers = np.array(buyers)
 
 # ───────────────────── PCA Projection (Map) ───────────────────
@@ -214,11 +202,17 @@ pca = make_pca(C, buyers)  # fit on centroids + current buyers
 Z_centroids = project_2d(pca, C)
 Z_buyers = project_2d(pca, buyers)
 
-# Compute human-readable axis labels from PCA loadings
-pc_labels = [
-    label_axis_from_weights(_pca_components(pca)[0]),
-    label_axis_from_weights(_pca_components(pca)[1]),
-]
+# Enforce Axis 2 orientation: Luxury ↑ / Value-seeking ↓
+components = _pca_components(pca)[:2].copy()
+comp1 = components[0].copy()
+comp2 = components[1].copy()
+ps_idx = FEAT_IDS.index("price_sensitivity")
+flip2 = comp2[ps_idx] > 0  # if PC2 increases with price_sensitivity, flip it
+if flip2:
+    Z_buyers[:, 1] *= -1
+    Z_centroids[:, 1] *= -1
+    comp2 *= -1
+effective_components = [comp1, comp2]  # use these for the explainer table
 
 # ────────────────────────── Tabs ──────────────────────────────
 tab_map, tab_people, tab_explore, tab_library, tab_data = st.tabs(
@@ -237,7 +231,7 @@ with tab_map:
     fig = px.scatter(
         df_map, x="x", y="y", color="segment", symbol="type",
         opacity=0.9,
-        labels={"x": f"Axis 1: {pc_labels[0]}", "y": f"Axis 2: {pc_labels[1]}"},
+        labels={"x": "Axis 1: Practicality", "y": "Axis 2: Luxury"},
         color_discrete_map=segment_palette(), height=620,
         hover_data={"segment":True,"x":":.2f","y":":.2f","type":True},
     )
@@ -273,13 +267,12 @@ with tab_map:
     )
     fig.add_hline(0, line_color="rgba(0,0,0,.15)")
     fig.add_vline(0, line_color="rgba(0,0,0,.15)")
-    
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    with st.expander("What do Axis 1 and Axis 2 mean?"):
+    with st.expander("What do Axis 1 and Axis 2 mean here?"):
         st.write("They’re PCA directions (weighted blends of features) fitted on this dataset.")
-        st.dataframe(axis_loadings_table(pca), use_container_width=True)
-        st.caption("Signs can flip; meanings can rotate if you change the cohort size (slider).")
+        st.dataframe(axis_loadings_table_from_components(effective_components), use_container_width=True)
+        st.caption("Axis 2 is oriented so **up = more Luxury (lower price sensitivity)**, **down = more value-seeking**.")
 
 # ─────────────────────── Individuals ──────────────────────────
 with tab_people:
@@ -302,6 +295,33 @@ with tab_people:
         ))
     st.dataframe(pd.DataFrame(cards), use_container_width=True)
     st.caption("This table summarizes a subset of buyers. Explore any buyer in detail in the next tab.")
+
+    # --- Backstories by segment ---
+    st.markdown("### Backstory examples by segment")
+    backstories = {
+        "Flavor-First Foodies": [
+            "A Brooklyn home cook who hosts friends weekly and loves experimenting with bold flavors; buys limited drops and follows chef creators.",
+        ],
+        "Clean-Label Purists": [
+            "A wellness-focused parent scanning labels for additives; wants traceability and fresh rotation via subscribe & save.",
+        ],
+        "Value-Seeking Families": [
+            "Two-kid household juggling weeknights; looks for multi-packs and loyalty credits, loves the no-mess squeeze bottle.",
+        ],
+        "Time-Saving Meal Hackers": [
+            "Startup PM who cooks fast between calls; shops online, wants quick recipes and one-squeeze consistency.",
+        ],
+        "Sustainable Shoppers": [
+            "Urban professional prioritizing lower-footprint packaging and responsible sourcing; prefers bulk/refill options.",
+        ],
+        "Trendy Hosts": [
+            "Design-savvy hostess who curates tablescapes; seeks giftable bottles and seasonal collabs that ‘wow’ guests.",
+        ],
+    }
+    for seg_name, stories in backstories.items():
+        with st.expander(f"{seg_name} — examples"):
+            for s_text in stories:
+                st.write(f"• {s_text}")
 
 # ─────────────────────── Buyer Explorer ───────────────────────
 with tab_explore:
