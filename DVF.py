@@ -1,4 +1,3 @@
-# graza_segments_app.py
 """
 Graza Buyer Segmentation & Messaging — Demo
 Run:
@@ -78,10 +77,10 @@ SEGMENTS = [
             "price_sensitivity":4.9,
             "cook_freq":        3.4,
             "convenience_need": 3.4,
-            "sustainability":   2.6,
-            "squeeze_affinity": 4.1,
+            "sustainability":   1.6,
+            "squeeze_affinity": 2.1,
             "online_grocery":   3.2,
-            "social_hosting":   2.4,
+            "social_hosting":   1.4,
             "novelty_seeking":  2.1,
         },
         value_props=["Everyday quality", "Mess-free squeeze", "Stretch your dollar"],
@@ -131,10 +130,10 @@ SEGMENTS = [
             "health_clean":     3.9,
             "price_sensitivity":1.7,
             "cook_freq":        3.7,
-            "convenience_need": 3.1,
+            "convenience_need": 2.1,
             "sustainability":   3.8,
             "squeeze_affinity": 4.2,
-            "online_grocery":   3.6,
+            "online_grocery":   2.6,
             "social_hosting":   4.9,
             "novelty_seeking":  4.9,
         },
