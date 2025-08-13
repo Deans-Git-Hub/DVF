@@ -1,3 +1,6 @@
 streamlit==1.47.0
 openai
 plotly
+scikit-learn
+pandas
+numpy
