@@ -1,3 +1,4 @@
+# graza_segments_app.py
 """
 Graza Buyer Segmentation & Messaging — Demo
 Run:
@@ -16,7 +17,7 @@ st.title("🫒 Graza Buyer Segmentation & Messaging (Demo)")
 
 # Internal constants (no UI)
 SEED = 1234          # RNG for reproducible synthetic data
-SPREAD = 0.35        # how tight buyers cluster around segment centroids
+SPREAD = 0.35        # cluster tightness around segment centroids (kept as-is)
 TEMP = 1.2           # segmentation temperature for softmax
 SHOW_DENSITY = True  # show density contours on the map
 
@@ -70,18 +71,18 @@ SEGMENTS = [
     dict(
         id="seg_value",
         name="Value-Seeking Families",
-        # ↓ Tweaked to sit LOWER on Luxury (more value-seeking, less novelty/hosting/clean)
+        # ↓ Strong tweak to sit LOWER on Luxury (more value-seeking, less novelty/hosting/clean)
         centroid={
-            "flavor_adventure": 2.5,
-            "health_clean":     3.2,
-            "price_sensitivity":4.9,
-            "cook_freq":        3.4,
-            "convenience_need": 3.4,
-            "sustainability":   1.6,
-            "squeeze_affinity": 2.1,
-            "online_grocery":   3.2,
-            "social_hosting":   1.4,
-            "novelty_seeking":  2.1,
+            "flavor_adventure": 2.2,
+            "health_clean":     2.8,
+            "price_sensitivity":5.0,   # max value-seeking
+            "cook_freq":        3.3,
+            "convenience_need": 3.6,
+            "sustainability":   2.2,
+            "squeeze_affinity": 4.1,
+            "online_grocery":   3.0,
+            "social_hosting":   1.8,
+            "novelty_seeking":  1.6,
         },
         value_props=["Everyday quality", "Mess-free squeeze", "Stretch your dollar"],
         offers=["Family multi-pack", "Loyalty credits", "Intro discount bundles"],
@@ -124,18 +125,18 @@ SEGMENTS = [
     dict(
         id="seg_trendy",
         name="Trendy Hosts",
-        # ↑ Tweaked to sit HIGHER on Luxury (lower price sensitivity, more novelty/hosting/clean)
+        # ↑ Strong tweak to sit HIGHER on Luxury (low price sensitivity, more novelty/hosting/clean)
         centroid={
-            "flavor_adventure": 4.7,
-            "health_clean":     3.9,
-            "price_sensitivity":1.7,
-            "cook_freq":        3.7,
-            "convenience_need": 2.1,
-            "sustainability":   3.8,
-            "squeeze_affinity": 4.2,
-            "online_grocery":   2.6,
-            "social_hosting":   4.9,
-            "novelty_seeking":  4.9,
+            "flavor_adventure": 4.9,
+            "health_clean":     4.2,
+            "price_sensitivity":1.2,   # very low price sensitivity
+            "cook_freq":        3.6,
+            "convenience_need": 3.0,
+            "sustainability":   4.0,
+            "squeeze_affinity": 4.3,
+            "online_grocery":   3.6,
+            "social_hosting":   5.0,
+            "novelty_seeking":  5.0,
         },
         value_props=["Giftable design", "Wow factor for guests", "Seasonal collabs"],
         offers=["Limited edition drops", "Host bundle", "Creator collabs"],
@@ -297,22 +298,22 @@ with tab_people:
 
     backstories = {
         "Flavor-First Foodies": [
-            "Marisol is a Brooklyn home cook who hosts friends almost every weekend. She follows chef creators on Instagram and treats her pantry like a studio—always chasing a peppery finish or a new drizzle that wakes up roasted vegetables. Packaging matters, but she’ll pay more for single-origin flavor and chef-taught techniques she can execute on a weeknight."
+            "Marisol is a Brooklyn home cook who hosts friends almost every weekend. She follows chef creators on Instagram and treats her pantry like a studio—always chasing a peppery finish or a new drizzle that wakes up roasted vegetables. Packaging matters, but she’ll pay more for single-origin flavor and chef-taught techniques she can execute on a weeknight. Recipe drops and the Drizzle + Sizzle bundle are her love language."
         ],
         "Clean-Label Purists": [
-            "Jason is a wellness-focused parent who reads every label and compares sourcing claims. He wants fresh harvest, traceability, and a routine that keeps quality high—think subscribe-and-save with clear provenance. His decision unlocks when he sees certifications, storage guidance, and proof that Graza’s squeeze keeps oxygen out between uses."
+            "Jason is a wellness-focused parent who reads every label and compares sourcing claims. He wants fresh harvest, traceability, and a routine that keeps quality high—think subscribe-and-save with clear provenance. His decision unlocks when he sees certifications, storage guidance, and proof that Graza’s squeeze keeps oxygen out between uses. A quality guarantee removes any risk."
         ],
         "Value-Seeking Families": [
-            "Tanya and Rob juggle two school schedules and weeknight dinners. They love that the squeeze bottle keeps counters clean and portions consistent, but they’re price-watchers first. Multi-packs, loyalty credits, and simple ‘feed-the-family’ recipes speak to them far more than limited collabs or gifting stories."
+            "Tanya and Rob juggle two school schedules and weeknight dinners. They love that the squeeze bottle keeps counters clean and portions consistent, but they’re price-watchers first. Multi-packs, loyalty credits, and straightforward ‘feed-the-family’ recipes matter more than limited collabs or gifting stories. If it stretches the budget and reduces mess, it wins."
         ],
         "Time-Saving Meal Hackers": [
-            "Dev is a startup PM who buys groceries online and cooks in 20-minute windows between calls. He wants reliable heat behavior and one-squeeze consistency, plus quick-start recipes that remove cognitive load. Trial bundles, refill two-packs, and short tutorial clips convert him quickly."
+            "Dev is a startup PM who buys groceries online and cooks in 20-minute windows between calls. He wants reliable high-heat behavior and one-squeeze consistency, plus quick-start recipes that remove cognitive load. Trial bundles, refill two-packs, and short tutorial clips convert him quickly. He’ll happily subscribe once he trusts the routine."
         ],
         "Sustainable Shoppers": [
-            "Ava prioritizes lower-footprint choices and responsible sourcing. She’s willing to pay a modest premium if she understands the environmental impact—refill options, durable bottles, and a transparent supply chain matter. She shares sustainability wins in her group chats and appreciates brands that report progress, not perfection."
+            "Ava prioritizes lower-footprint choices and responsible sourcing. She’s willing to pay a modest premium if she understands the environmental impact—refill options, durable bottles, and a transparent supply chain matter. She shares sustainability wins in group chats and appreciates brands that report progress, not perfection. A carbon-aware shipping note is a plus."
         ],
         "Trendy Hosts": [
-            "Luca is the friend whose dinner parties end up on Stories. He curates tablescapes, gifts good-looking pantry staples, and loves seasonal drops that spark conversation. Price is a minor consideration compared with design, flavor ‘wow,’ and the joy of unveiling something new to guests—exactly where Graza’s limited editions and host bundles shine."
+            "Luca is the friend whose dinner parties end up on Stories. He curates tablescapes, gifts good-looking pantry staples, and hunts seasonal drops that spark conversation. Price is secondary to design, flavor ‘wow,’ and the joy of unveiling something new to guests—exactly where Graza’s limited editions and host bundles shine. Creator collabs and pop-up moments keep him engaged."
         ],
     }
 
